@@ -372,8 +372,7 @@ const CreateEvent = () => {
           setOriginalDate(currentDateStr);
         }
       }
-      toast.success(statusToSave === "Live" ? "Changes saved" : "Draft Saved");
-      navigate(`/dashboard/${orgSlug}/event/${event.id}`);
+      toast.success(statusToSave === "Live" ? "Changes saved" : "Draft saved");
     } catch (err: any) {
       console.error("Save error:", err);
       toast.error(err?.message || String(err) || "Failed to save event");

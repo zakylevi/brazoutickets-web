@@ -126,17 +126,22 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
     eventId: string;
   }
   const [myTickets, setMyTickets] = useState<MyTicket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
 
   useEffect(() => {
     // For own profile, use session user; for view mode, use customerData.userId or customerData.user_id
     const userId = isViewMode ? (customerData?.userId || customerData?.user_id) : session?.user?.id;
-    if (!userId) return;
+    if (!userId) {
+      setTicketsLoading(false);
+      return;
+    }
     const fetchTickets = async () => {
+      setTicketsLoading(true);
       const { data: orders } = await supabase
         .from("orders")
         .select("id, public_ticket_token, ticket_name, quantity, created_at, event_id, events!inner(title, venue, city, flyer_url, date)")
         .eq("user_id", userId)
-        .eq("status", "completed")
+        .in("status", ["completed", "COMPLETED"])
         .order("created_at", { ascending: false });
 
       if (orders) {
@@ -155,9 +160,10 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
         }));
         setMyTickets(tickets);
       }
+      setTicketsLoading(false);
     };
     fetchTickets();
-  }, [session?.user, isViewMode, customerData?.userId]);
+  }, [session?.user?.id, isViewMode, customerData?.userId, customerData?.user_id]);
 
   // Fetch followed organizations
   const [followedOrgs, setFollowedOrgs] = useState<{ name: string; avatar: string; slug: string }[]>([]);
@@ -815,7 +821,11 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
               </button>
             )}
           </div>
-          {groupedUpcoming.length === 0 ? (
+          {ticketsLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-6 h-6 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+            </div>
+          ) : groupedUpcoming.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-3xl border border-dashed border-border bg-secondary/30">
               <Ticket className="w-12 h-12 text-muted-foreground mb-4" />
               <p className="text-muted-foreground font-bold text-sm">{isViewMode ? "No upcoming events" : "No upcoming tickets"}</p>
