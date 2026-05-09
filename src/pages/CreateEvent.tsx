@@ -150,6 +150,7 @@ const CreateEvent = () => {
   const [originalDate, setOriginalDate] = useState<string | null>(null);
 
   const [showArtistModal, setShowArtistModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [seatingSections, setSeatingSections] = useState<SeatingSection[]>([]);
   const [showEndTime] = useState(true); // End time is always required
   const flyerInputRef = useRef<HTMLInputElement>(null);
@@ -307,6 +308,7 @@ const CreateEvent = () => {
     }
     const statusToSave = event.status === "Live" ? "Live" : "Draft";
     set("status", statusToSave);
+    setIsSaving(true);
     try {
       await saveEvent({ ...event, status: statusToSave });
 
@@ -374,7 +376,9 @@ const CreateEvent = () => {
       navigate(`/dashboard/${orgSlug}/event/${event.id}`);
     } catch (err: any) {
       console.error("Save error:", err);
-      toast.error(err?.message || "Failed to save event");
+      toast.error(err?.message || String(err) || "Failed to save event");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -411,10 +415,13 @@ const CreateEvent = () => {
             </span>
             <button
               onClick={handleSaveDraft}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-border text-sm font-bold hover:bg-secondary transition-colors"
+              disabled={isSaving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-border text-sm font-bold hover:bg-secondary transition-colors disabled:opacity-60"
             >
-              <Save className="w-4 h-4" />
-              {event.status === "Live" ? "Save Changes" : "Save Draft"}
+              {isSaving
+                ? <><div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Saving...</>
+                : <><Save className="w-4 h-4" />{event.status === "Live" ? "Save Changes" : "Save Draft"}</>
+              }
             </button>
           </div>
         </div>

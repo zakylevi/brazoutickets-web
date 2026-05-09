@@ -21,6 +21,12 @@ const AddArtistModal = ({ open, onOpenChange, onAdd }: AddArtistModalProps) => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext === "heic" || ext === "heif" || file.type === "image/heic" || file.type === "image/heif") {
+      alert("HEIC photos aren't supported by browsers. Please convert to JPG or PNG first.\n\nOn iPhone: open the photo → tap Share → Save as file → choose JPG.");
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (ev) => setImage(ev.target?.result as string);
     reader.readAsDataURL(file);
