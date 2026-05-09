@@ -210,6 +210,7 @@ const storedEventToDbRow = async (event: StoredEvent) => {
     gallery: event.gallery as any,
     show_end_time: event.showEndTime !== false,
     event_type: event.eventType || "general_admission",
+    sales_disabled: event.salesDisabled ?? false,
   };
 };
 
@@ -268,6 +269,10 @@ export const saveEvent = async (event: StoredEvent): Promise<void> => {
       .select();
     error = result.error;
     data = result.data;
+
+    if (!error && (!data || (data as any[]).length === 0)) {
+      throw new Error("Permission denied: your account doesn't have edit access to this event. Sign out and back in, then try again.");
+    }
   } else {
     // INSERT path
     const result = await supabase
