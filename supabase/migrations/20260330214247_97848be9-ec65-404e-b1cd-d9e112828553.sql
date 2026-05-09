@@ -1,0 +1,1 @@
+ALTER TABLE public.events ADD COLUMN date_changes_count integer NOT NULL DEFAULT 0;

@@ -1,0 +1,1 @@
+ALTER TABLE public.events ADD COLUMN sales_disabled boolean NOT NULL DEFAULT false;

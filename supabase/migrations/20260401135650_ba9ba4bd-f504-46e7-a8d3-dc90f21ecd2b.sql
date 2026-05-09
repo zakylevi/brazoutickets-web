@@ -1,0 +1,1 @@
+ALTER TABLE public.events ADD COLUMN show_end_time boolean NOT NULL DEFAULT true;

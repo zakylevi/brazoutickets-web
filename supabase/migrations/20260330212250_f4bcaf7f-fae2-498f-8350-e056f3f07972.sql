@@ -1,0 +1,1 @@
+ALTER TABLE public.tracking_links ADD COLUMN created_by_admin boolean NOT NULL DEFAULT false;
