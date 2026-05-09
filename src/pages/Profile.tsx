@@ -131,39 +131,43 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
   useEffect(() => {
     // For own profile, use session user; for view mode, use customerData.userId or customerData.user_id
     const userId = isViewMode ? (customerData?.userId || customerData?.user_id) : session?.user?.id;
+    if (!authReady) return;
     if (!userId) {
       setTicketsLoading(false);
       return;
     }
     const fetchTickets = async () => {
       setTicketsLoading(true);
-      const { data: orders } = await supabase
-        .from("orders")
-        .select("id, public_ticket_token, ticket_name, quantity, created_at, event_id, events!inner(title, venue, city, flyer_url, date)")
-        .eq("user_id", userId)
-        .in("status", ["completed", "COMPLETED"])
-        .order("created_at", { ascending: false });
+      try {
+        const { data: orders } = await supabase
+          .from("orders")
+          .select("id, public_ticket_token, ticket_name, quantity, created_at, event_id, events(title, venue, city, flyer_url, date)")
+          .eq("user_id", userId)
+          .in("status", ["completed", "COMPLETED", "paid"])
+          .order("created_at", { ascending: false });
 
-      if (orders) {
-        const tickets: MyTicket[] = orders.map((o: any) => ({
-          id: o.id,
-          publicToken: o.public_ticket_token,
-          eventTitle: o.events?.title || "Event",
-          date: o.events?.date ? new Date(o.events.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : new Date(o.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-          rawDate: o.events?.date || null,
-          venue: o.events?.venue || "",
-          location: o.events?.city || "",
-          ticketType: o.ticket_name,
-          quantity: o.quantity || 1,
-          image: o.events?.flyer_url || "",
-          eventId: o.event_id,
-        }));
-        setMyTickets(tickets);
+        if (orders) {
+          const tickets: MyTicket[] = orders.map((o: any) => ({
+            id: o.id,
+            publicToken: o.public_ticket_token,
+            eventTitle: o.events?.title || "Event",
+            date: o.events?.date ? new Date(o.events.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : new Date(o.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+            rawDate: o.events?.date || null,
+            venue: o.events?.venue || "",
+            location: o.events?.city || "",
+            ticketType: o.ticket_name,
+            quantity: o.quantity || 1,
+            image: o.events?.flyer_url || "",
+            eventId: o.event_id,
+          }));
+          setMyTickets(tickets);
+        }
+      } finally {
+        setTicketsLoading(false);
       }
-      setTicketsLoading(false);
     };
     fetchTickets();
-  }, [session?.user?.id, isViewMode, customerData?.userId, customerData?.user_id]);
+  }, [authReady, session?.user?.id, isViewMode, customerData?.userId, customerData?.user_id]);
 
   // Fetch followed organizations
   const [followedOrgs, setFollowedOrgs] = useState<{ name: string; avatar: string; slug: string }[]>([]);
