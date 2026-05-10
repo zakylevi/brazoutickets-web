@@ -143,7 +143,7 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
           .from("orders")
           .select("id, public_ticket_token, ticket_name, quantity, created_at, event_id, events(title, venue, city, flyer_url, date)")
           .eq("user_id", userId)
-          .in("status", ["completed", "COMPLETED", "paid"])
+          .in("status", ["completed", "COMPLETED", "paid", "SCANNED", "scanned"])
           .order("created_at", { ascending: false });
 
         if (orders) {
