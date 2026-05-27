@@ -303,12 +303,10 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
     }
   };
 
-  const pastEventsData = pastTickets.length > 0
-    ? Object.values(pastTickets.reduce((acc, t) => {
-        if (!acc[t.eventTitle]) acc[t.eventTitle] = { title: t.eventTitle, date: t.date, location: t.location, image: t.image };
-        return acc;
-      }, {} as Record<string, { title: string; date: string; location: string; image: string }>))
-    : allEvents;
+  const pastEventsData = Object.values(pastTickets.reduce((acc, t) => {
+    if (!acc[t.eventTitle]) acc[t.eventTitle] = { title: t.eventTitle, date: t.date, location: t.location, image: t.image };
+    return acc;
+  }, {} as Record<string, { title: string; date: string; location: string; image: string }>));
   const displayedEvents = showAllEvents ? pastEventsData : pastEventsData.slice(0, 2);
   const displayedOrganizers = showAllOrganizers ? followedOrgs : followedOrgs.slice(0, 5);
 

@@ -372,8 +372,7 @@ const Explore = () => {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Combine hardcoded + DB events
-  const allDiscoverEvents = [...dbEvents, ...discoverEvents];
+  const allDiscoverEvents = dbEvents;
 
   // Fallback: IP-based location
   const fallbackToIP = async () => {

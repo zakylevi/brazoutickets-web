@@ -373,6 +373,7 @@ const CreateEvent = () => {
         }
       }
       toast.success(statusToSave === "Live" ? "Changes saved" : "Draft saved");
+      navigate(`/dashboard/${orgSlug}/event/${event.id}`);
     } catch (err: any) {
       console.error("Save error:", err);
       toast.error(err?.message || String(err) || "Failed to save event");
