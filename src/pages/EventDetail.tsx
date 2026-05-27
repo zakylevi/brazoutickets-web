@@ -8,10 +8,9 @@ import EventSeatingMap from "@/components/EventSeatingMap";
 import { getEventById, StoredEvent } from "@/stores/eventStore";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { calculateServiceFee } from "@/lib/orderPricing";
+import RequestAccessModal from "@/components/RequestAccessModal";
 
 interface DbTicketType {
   id: string;
@@ -39,9 +38,6 @@ const EventDetail = () => {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [requestTicket, setRequestTicket] = useState<DbTicketType | null>(null);
-  const [requestMessage, setRequestMessage] = useState("");
-  const [requestQty, setRequestQty] = useState(1);
-  const [submittingRequest, setSubmittingRequest] = useState(false);
   const [userRequestStatuses, setUserRequestStatuses] = useState<Record<string, string>>({});
   const [selectedSeats, setSelectedSeats] = useState<Map<string, { sectionName: string; rowLabel: string; seatNumber: number; price: number }>>(new Map());
   const { user } = useAuth();
@@ -577,8 +573,6 @@ const EventDetail = () => {
                               <button
                                 onClick={() => {
                                   setRequestTicket(tier);
-                                  setRequestQty(1);
-                                  setRequestMessage("");
                                   setRequestModalOpen(true);
                                 }}
                                 className="px-8 py-3 rounded-full bg-primary text-primary-foreground font-black tracking-tight text-sm hover:scale-105 transition-all flex items-center gap-2"
@@ -711,70 +705,13 @@ const EventDetail = () => {
         )}
       </main>
 
-      {/* Request Access Modal */}
-      <Dialog open={requestModalOpen} onOpenChange={(o) => { if (!o) setRequestModalOpen(false); }}>
-        <DialogContent className="sm:max-w-md rounded-3xl">
-          <DialogHeader>
-            <DialogTitle className="font-black text-xl">Request Access</DialogTitle>
-            <DialogDescription>
-              Request access to <span className="font-bold">{requestTicket?.name}</span>. The organizer will review your request.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <label className="font-bold text-xs uppercase tracking-wider text-foreground">Quantity</label>
-              <p className="text-xs text-muted-foreground">Limit {Math.max(1, requestTicket?.max_per_order ?? 10)} per order</p>
-              <div className="flex items-center gap-3">
-                <button onClick={() => setRequestQty((q) => Math.max(1, q - 1))} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center hover:bg-accent transition-colors"><Minus className="w-4 h-4" /></button>
-                <span className="font-black tabular-nums text-lg w-8 text-center">{requestQty}</span>
-                <button onClick={() => setRequestQty((q) => Math.min(Math.max(1, requestTicket?.max_per_order ?? 10), q + 1))} className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center hover:bg-accent transition-colors"><Plus className="w-4 h-4" /></button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="font-bold text-xs uppercase tracking-wider text-foreground">Message (optional)</label>
-              <Textarea
-                placeholder="Tell the organizer why you'd like to attend..."
-                value={requestMessage}
-                onChange={(e) => setRequestMessage(e.target.value)}
-                className="rounded-xl resize-none"
-                rows={3}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRequestModalOpen(false)} className="rounded-full">Cancel</Button>
-            <Button
-              disabled={submittingRequest || !user}
-              onClick={async () => {
-                if (!requestTicket || !eventId) return;
-                const { data: sess } = await supabase.auth.getSession();
-                const uid = sess?.session?.user?.id;
-                if (!uid) { toast.error("Please log in first"); return; }
-                setSubmittingRequest(true);
-                const { error } = await supabase.from("ticket_requests" as any).insert({
-                  event_id: eventId,
-                  ticket_type_id: requestTicket.id,
-                  user_id: uid,
-                  quantity: requestQty,
-                  message: requestMessage,
-                  status: "pending",
-                });
-                setSubmittingRequest(false);
-                if (error) {
-                  toast.error("Failed to submit request. You may have already submitted one.");
-                  return;
-                }
-                setUserRequestStatuses((prev) => ({ ...prev, [requestTicket.id]: "pending" }));
-                setRequestModalOpen(false);
-                toast.success("Request submitted! You'll be notified when the organizer responds.");
-              }}
-              className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
-            >
-              {submittingRequest ? "Submitting..." : "Submit Request"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RequestAccessModal
+        open={requestModalOpen}
+        onOpenChange={setRequestModalOpen}
+        ticket={requestTicket}
+        eventId={eventId || ""}
+        onSubmitted={(ticketTypeId) => setUserRequestStatuses((prev) => ({ ...prev, [ticketTypeId]: "pending" }))}
+      />
 
       <CheckoutModal
         open={checkoutOpen}
