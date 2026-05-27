@@ -4,11 +4,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Ticket, CreditCard, Settings, HelpCircle, ArrowRight, Pencil, Plus, Trash2, Eye, EyeOff, Check, X, Download, QrCode } from "lucide-react";
+import { Ticket, CreditCard, Settings, HelpCircle, ArrowRight, Pencil, Plus, Trash2, Eye, EyeOff, Check, X, Download, QrCode, ShieldCheck } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import PhoneInput from "@/components/PhoneInput";
 import VerifyChangeModal from "@/components/VerifyChangeModal";
+import { loadStripe, Stripe, StripeCardElement } from "@stripe/stripe-js";
 
 const allEvents = [
   {
@@ -73,10 +74,12 @@ interface SavedCard {
   id: string;
   brand: string;
   last4: string;
-  expiry: string;
+  expMonth: number;
+  expYear: number;
   holder: string;
-  isDefault: boolean;
 }
+
+const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
 
 const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
   const { user, session, loading, authReady, refreshProfile } = useAuth();
@@ -231,11 +234,14 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
   const [showAllOrganizers, setShowAllOrganizers] = useState(false);
 
   // Payment Methods state
-  const [savedCards, setSavedCards] = useState<SavedCard[]>([
-    { id: "1", brand: "Visa", last4: "4242", expiry: "12/26", holder: "ISAAC LEVI", isDefault: true },
-  ]);
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
+  const [loadingCards, setLoadingCards] = useState(false);
   const [showAddCard, setShowAddCard] = useState(false);
-  const [newCard, setNewCard] = useState({ number: "", expiry: "", cvc: "", holder: "", address: "", city: "", state: "", zip: "", country: "" });
+  const [addingCard, setAddingCard] = useState(false);
+  const [stripeReady, setStripeReady] = useState(false);
+  const stripeRef = useRef<Stripe | null>(null);
+  const cardElRef = useRef<StripeCardElement | null>(null);
+  const cardMountRef = useRef<HTMLDivElement>(null);
 
   // Settings state
   const [settingsForm, setSettingsForm] = useState({
@@ -252,6 +258,46 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
   const [verifyModal, setVerifyModal] = useState<{ open: boolean; field: "email" | "phone"; value: string }>({ open: false, field: "email", value: "" });
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Load saved cards when Payment Methods tab is active
+  useEffect(() => {
+    if (activeTab !== "Payment Methods") return;
+    const load = async () => {
+      setLoadingCards(true);
+      const { data, error } = await supabase.functions.invoke("get-payment-methods");
+      if (!error && data?.paymentMethods) setSavedCards(data.paymentMethods);
+      setLoadingCards(false);
+    };
+    load();
+  }, [activeTab]);
+
+  // Mount Stripe card element when add card form is open
+  useEffect(() => {
+    if (!showAddCard || !STRIPE_KEY || !cardMountRef.current) return;
+    let mounted = true;
+    let cardEl: StripeCardElement | null = null;
+    (async () => {
+      const stripe = await loadStripe(STRIPE_KEY);
+      if (!stripe || !mounted) return;
+      stripeRef.current = stripe;
+      const elements = stripe.elements();
+      cardEl = elements.create("card", {
+        style: {
+          base: { fontSize: "15px", fontFamily: "inherit", color: "#f0f0f0", "::placeholder": { color: "#6b7280" } },
+        },
+        hidePostalCode: true,
+      });
+      cardEl.mount(cardMountRef.current!);
+      cardElRef.current = cardEl;
+      setStripeReady(true);
+    })();
+    return () => {
+      mounted = false;
+      cardEl?.unmount();
+      cardElRef.current = null;
+      setStripeReady(false);
+    };
+  }, [showAddCard]);
 
   const withTimeout = async <T,>(operation: () => Promise<T>, ms = 12000): Promise<T> => {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -339,45 +385,34 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
     );
   }
 
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\D/g, "").slice(0, 16);
-    return v.replace(/(\d{4})(?=\d)/g, "$1 ");
-  };
-
-  const formatExpiry = (value: string) => {
-    const v = value.replace(/\D/g, "").slice(0, 4);
-    if (v.length >= 3) return v.slice(0, 2) + "/" + v.slice(2);
-    return v;
-  };
-
-  const handleAddCard = () => {
-    if (!newCard.number || !newCard.expiry || !newCard.cvc || !newCard.holder || !newCard.address || !newCard.city || !newCard.zip || !newCard.country) {
-      toast.error("Please fill in all card and billing fields");
-      return;
+  const handleAddCard = async () => {
+    if (!stripeRef.current || !cardElRef.current) return;
+    setAddingCard(true);
+    try {
+      const { data: siData, error: siError } = await supabase.functions.invoke("create-setup-intent");
+      if (siError || !siData?.clientSecret) throw new Error("Failed to start card setup");
+      const { setupIntent, error: confirmErr } = await stripeRef.current.confirmCardSetup(siData.clientSecret, {
+        payment_method: { card: cardElRef.current },
+      });
+      if (confirmErr) throw new Error(confirmErr.message);
+      if (setupIntent?.status === "succeeded") {
+        const { data } = await supabase.functions.invoke("get-payment-methods");
+        if (data?.paymentMethods) setSavedCards(data.paymentMethods);
+        setShowAddCard(false);
+        toast.success("Card saved to your wallet");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save card");
+    } finally {
+      setAddingCard(false);
     }
-    const last4 = newCard.number.replace(/\s/g, "").slice(-4);
-    const card: SavedCard = {
-      id: Date.now().toString(),
-      brand: newCard.number.startsWith("4") ? "Visa" : newCard.number.startsWith("5") ? "Mastercard" : "Card",
-      last4,
-      expiry: newCard.expiry,
-      holder: newCard.holder.toUpperCase(),
-      isDefault: savedCards.length === 0,
-    };
-    setSavedCards([...savedCards, card]);
-    setNewCard({ number: "", expiry: "", cvc: "", holder: "", address: "", city: "", state: "", zip: "", country: "" });
-    setShowAddCard(false);
-    toast.success("Card added successfully");
   };
 
-  const handleDeleteCard = (id: string) => {
-    setSavedCards(savedCards.filter((c) => c.id !== id));
+  const handleDeleteCard = async (id: string) => {
+    const { error } = await supabase.functions.invoke("delete-payment-method", { body: { paymentMethodId: id } });
+    if (error) { toast.error("Failed to remove card"); return; }
+    setSavedCards((prev) => prev.filter((c) => c.id !== id));
     toast.success("Card removed");
-  };
-
-  const handleSetDefault = (id: string) => {
-    setSavedCards(savedCards.map((c) => ({ ...c, isDefault: c.id === id })));
-    toast.success("Default card updated");
   };
 
   const handleSaveSettings = async (field: string) => {
@@ -449,41 +484,40 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
           </div>
 
           {/* Saved Cards */}
-          <div className="space-y-4">
-            {savedCards.map((card) => (
-              <div
-                key={card.id}
-                className={`flex items-center justify-between p-6 rounded-2xl border transition-all ${
-                  card.isDefault ? "border-brand-pink bg-secondary" : "border-border bg-secondary/50 hover:bg-secondary"
-                }`}
-              >
-                <div className="flex items-center gap-5">
-                  <div className="w-14 h-10 rounded-lg bg-foreground/10 flex items-center justify-center">
-                    <CreditCard className="w-6 h-6 text-on-background" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-black tracking-tight text-on-background">{card.brand} •••• {card.last4}</span>
-                      {card.isDefault && (
-                        <span className="bg-brand-lime text-foreground px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest">
-                          Default
-                        </span>
-                      )}
+          {loadingCards ? (
+            <div className="flex justify-center py-8">
+              <div className="w-6 h-6 border-4 border-brand-pink border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {savedCards.length === 0 && !showAddCard && (
+                <p className="text-sm text-muted-foreground">No saved cards yet.</p>
+              )}
+              {savedCards.map((card, i) => (
+                <div
+                  key={card.id}
+                  className={`flex items-center justify-between p-6 rounded-2xl border transition-all ${
+                    i === 0 ? "border-brand-pink bg-secondary" : "border-border bg-secondary/50 hover:bg-secondary"
+                  }`}
+                >
+                  <div className="flex items-center gap-5">
+                    <div className="w-14 h-10 rounded-lg bg-foreground/10 flex items-center justify-center">
+                      <CreditCard className="w-6 h-6 text-on-background" />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {card.holder} · Expires {card.expiry}
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-black tracking-tight text-on-background capitalize">{card.brand} •••• {card.last4}</span>
+                        {i === 0 && (
+                          <span className="bg-brand-lime text-foreground px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {card.holder ? `${card.holder} · ` : ""}Expires {String(card.expMonth).padStart(2, "0")}/{String(card.expYear).slice(-2)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {!card.isDefault && (
-                    <button
-                      onClick={() => handleSetDefault(card.id)}
-                      className="text-xs font-bold text-muted-foreground hover:text-brand-pink transition-colors px-3 py-2 rounded-lg hover:bg-secondary"
-                    >
-                      Set Default
-                    </button>
-                  )}
                   <button
                     onClick={() => handleDeleteCard(card.id)}
                     className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
@@ -491,126 +525,38 @@ const Profile = ({ viewMode = false }: { viewMode?: boolean }) => {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* Add New Card */}
           {showAddCard ? (
             <div className="p-8 rounded-3xl border border-border bg-secondary/50 space-y-6">
               <h3 className="font-black tracking-tight text-lg text-on-background">Add New Card</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Card Number</label>
-                  <input
-                    type="text"
-                    value={newCard.number}
-                    onChange={(e) => setNewCard({ ...newCard, number: formatCardNumber(e.target.value) })}
-                    placeholder="1234 5678 9012 3456"
-                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    maxLength={19}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Expiry Date</label>
-                  <input
-                    type="text"
-                    value={newCard.expiry}
-                    onChange={(e) => setNewCard({ ...newCard, expiry: formatExpiry(e.target.value) })}
-                    placeholder="MM/YY"
-                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    maxLength={5}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">CVC</label>
-                  <input
-                    type="text"
-                    value={newCard.cvc}
-                    onChange={(e) => setNewCard({ ...newCard, cvc: e.target.value.replace(/\D/g, "").slice(0, 4) })}
-                    placeholder="123"
-                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    maxLength={4}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Cardholder Name</label>
-                  <input
-                    type="text"
-                    value={newCard.holder}
-                    onChange={(e) => setNewCard({ ...newCard, holder: e.target.value })}
-                    placeholder="JOHN DOE"
-                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium uppercase focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                  />
-                </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Card Details</label>
+                <div
+                  ref={cardMountRef}
+                  className="border border-border rounded-xl px-4 py-3.5 bg-background min-h-[44px]"
+                />
+                {!stripeReady && (
+                  <p className="text-xs text-muted-foreground mt-1">Loading secure card input…</p>
+                )}
               </div>
-
-              {/* Billing Address */}
-              <div className="pt-4 border-t border-border">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4">Billing Address</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Street Address</label>
-                    <input
-                      type="text"
-                      value={newCard.address}
-                      onChange={(e) => setNewCard({ ...newCard, address: e.target.value })}
-                      placeholder="123 Main Street"
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">City</label>
-                    <input
-                      type="text"
-                      value={newCard.city}
-                      onChange={(e) => setNewCard({ ...newCard, city: e.target.value })}
-                      placeholder="São Paulo"
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">State / Province</label>
-                    <input
-                      type="text"
-                      value={newCard.state}
-                      onChange={(e) => setNewCard({ ...newCard, state: e.target.value })}
-                      placeholder="SP"
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">ZIP / Postal Code</label>
-                    <input
-                      type="text"
-                      value={newCard.zip}
-                      onChange={(e) => setNewCard({ ...newCard, zip: e.target.value })}
-                      placeholder="01000-000"
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Country</label>
-                    <input
-                      type="text"
-                      value={newCard.country}
-                      onChange={(e) => setNewCard({ ...newCard, country: e.target.value })}
-                      placeholder="Brazil"
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-background text-on-background font-medium focus:outline-none focus:ring-2 focus:ring-brand-pink transition-shadow"
-                    />
-                  </div>
-                </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
+                <span>Your card is stored securely by Stripe. We never see the full card number.</span>
               </div>
-
               <div className="flex gap-3">
                 <button
                   onClick={handleAddCard}
-                  className="px-8 py-3 bg-brand-pink text-primary-foreground font-black uppercase tracking-widest text-xs rounded-full hover:opacity-90 transition-opacity"
+                  disabled={addingCard || !stripeReady}
+                  className="px-8 py-3 bg-brand-pink text-primary-foreground font-black uppercase tracking-widest text-xs rounded-full hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  Save Card
+                  {addingCard ? "Saving…" : "Save Card"}
                 </button>
                 <button
-                  onClick={() => { setShowAddCard(false); setNewCard({ number: "", expiry: "", cvc: "", holder: "", address: "", city: "", state: "", zip: "", country: "" }); }}
+                  onClick={() => setShowAddCard(false)}
                   className="px-8 py-3 bg-secondary text-foreground font-black uppercase tracking-widest text-xs rounded-full hover:bg-secondary/80 transition-colors"
                 >
                   Cancel

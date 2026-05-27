@@ -25,11 +25,22 @@ interface Props {
 
 const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
 
+interface SavedCard {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}
+
 const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }: Props) => {
   const [qty, setQty] = useState(1);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [stripeReady, setStripeReady] = useState(false);
+  const [savedCard, setSavedCard] = useState<SavedCard | null>(null);
+  const [savedCardCustomerId, setSavedCardCustomerId] = useState<string | null>(null);
+  const [useSavedCard, setUseSavedCard] = useState(true);
   const stripeRef = useRef<Stripe | null>(null);
   const cardElementRef = useRef<StripeCardElement | null>(null);
   const cardMountRef = useRef<HTMLDivElement>(null);
@@ -38,10 +49,26 @@ const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }
   const { totalPaid, serviceFee } = resolveOrderPricing({ unitPrice, quantity: qty });
   const isFree = unitPrice <= 0;
   const stripeEnabled = !!STRIPE_KEY && !isFree;
+  const showCardInput = stripeEnabled && (!savedCard || !useSavedCard);
 
-  // Load Stripe and mount card element when modal opens
+  // Fetch saved card when modal opens
   useEffect(() => {
-    if (!open || !stripeEnabled || !cardMountRef.current) return;
+    if (!open || !stripeEnabled) return;
+    supabase.functions.invoke("get-payment-methods").then(({ data }) => {
+      if (data?.paymentMethods?.length > 0) {
+        setSavedCard(data.paymentMethods[0]);
+        setSavedCardCustomerId(data.customerId || null);
+        setUseSavedCard(true);
+      } else {
+        setSavedCard(null);
+        setSavedCardCustomerId(null);
+      }
+    });
+  }, [open, stripeEnabled]);
+
+  // Load Stripe and mount card element when card input is needed
+  useEffect(() => {
+    if (!open || !showCardInput || !cardMountRef.current) return;
 
     let mounted = true;
     let cardEl: StripeCardElement | null = null;
@@ -74,11 +101,14 @@ const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }
       cardElementRef.current = null;
       setStripeReady(false);
     };
-  }, [open, stripeEnabled]);
+  }, [open, showCardInput]);
 
   const handleClose = () => {
     setQty(1);
     setMessage("");
+    setSavedCard(null);
+    setSavedCardCustomerId(null);
+    setUseSavedCard(true);
     onOpenChange(false);
   };
 
@@ -90,17 +120,27 @@ const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }
 
     setSubmitting(true);
     try {
-      if (stripeEnabled && stripeRef.current && cardElementRef.current) {
-        // Create PaymentMethod from card element
-        const { paymentMethod, error: pmError } = await stripeRef.current.createPaymentMethod({
-          type: "card",
-          card: cardElementRef.current,
-        });
+      if (stripeEnabled) {
+        let paymentMethodId: string;
 
-        if (pmError || !paymentMethod) {
-          toast.error(pmError?.message || "Card error. Please check your card details.");
-          setSubmitting(false);
-          return;
+        if (savedCard && useSavedCard) {
+          paymentMethodId = savedCard.id;
+        } else {
+          if (!stripeRef.current || !cardElementRef.current) {
+            toast.error("Card input not ready");
+            setSubmitting(false);
+            return;
+          }
+          const { paymentMethod, error: pmError } = await stripeRef.current.createPaymentMethod({
+            type: "card",
+            card: cardElementRef.current,
+          });
+          if (pmError || !paymentMethod) {
+            toast.error(pmError?.message || "Card error. Please check your card details.");
+            setSubmitting(false);
+            return;
+          }
+          paymentMethodId = paymentMethod.id;
         }
 
         // Call edge function: creates ticket_request + Stripe auth hold
@@ -110,7 +150,8 @@ const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }
             ticketTypeId: ticket.id,
             quantity: qty,
             message: message.trim() || null,
-            paymentMethodId: paymentMethod.id,
+            paymentMethodId,
+            customerId: savedCardCustomerId || undefined,
           },
         });
 
@@ -201,19 +242,48 @@ const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }
             />
           </div>
 
-          {/* Card element */}
+          {/* Card section */}
           {stripeEnabled && (
             <div className="space-y-2">
               <label className="font-bold text-xs uppercase tracking-wider text-foreground flex items-center gap-1.5">
-                <CreditCard className="w-3.5 h-3.5" /> Card Details
+                <CreditCard className="w-3.5 h-3.5" /> Payment
               </label>
-              <div
-                ref={cardMountRef}
-                className="border border-border rounded-xl px-4 py-3.5 bg-secondary min-h-[44px]"
-              />
-              {!stripeReady && (
-                <p className="text-xs text-muted-foreground">Loading secure card input…</p>
+
+              {savedCard && useSavedCard ? (
+                <div className="border border-border rounded-xl px-4 py-3 bg-secondary flex items-center justify-between">
+                  <span className="text-sm font-bold capitalize text-foreground">
+                    {savedCard.brand} •••• {savedCard.last4} &nbsp;
+                    <span className="text-muted-foreground font-normal text-xs">
+                      {String(savedCard.expMonth).padStart(2, "0")}/{String(savedCard.expYear).slice(-2)}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => setUseSavedCard(false)}
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    Use different card
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div
+                    ref={cardMountRef}
+                    className="border border-border rounded-xl px-4 py-3.5 bg-secondary min-h-[44px]"
+                  />
+                  {!stripeReady && (
+                    <p className="text-xs text-muted-foreground">Loading secure card input…</p>
+                  )}
+                  {savedCard && (
+                    <button
+                      onClick={() => setUseSavedCard(true)}
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                    >
+                      Use saved card (•••• {savedCard.last4})
+                    </button>
+                  )}
+                </>
               )}
+
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
                 <span>Card authorized only — not charged until approved. Hold releases automatically if denied.</span>
@@ -243,7 +313,7 @@ const RequestAccessModal = ({ open, onOpenChange, ticket, eventId, onSubmitted }
         <DialogFooter>
           <Button variant="ghost" onClick={handleClose} className="rounded-full">Cancel</Button>
           <Button
-            disabled={submitting || (stripeEnabled && !stripeReady)}
+            disabled={submitting || (stripeEnabled && showCardInput && !stripeReady)}
             onClick={handleSubmit}
             className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
           >

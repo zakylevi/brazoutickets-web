@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { eventId, ticketTypeId, quantity, message, paymentMethodId } = await req.json();
+    const { eventId, ticketTypeId, quantity, message, paymentMethodId, customerId } = await req.json();
 
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
     if (!stripeKey) throw new Error("Stripe is not configured yet.");
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
     const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
 
     // Create PaymentIntent with capture_method: manual (authorization hold only)
-    const paymentIntent = await stripe.paymentIntents.create({
+    const piParams: any = {
       amount: total,
       currency: "usd",
       payment_method: paymentMethodId,
@@ -85,7 +85,9 @@ Deno.serve(async (req) => {
         ticket_type_id: ticketTypeId,
         user_id: user.id,
       },
-    });
+    };
+    if (customerId) piParams.customer = customerId;
+    const paymentIntent = await stripe.paymentIntents.create(piParams);
 
     // Save payment intent ID to the request
     await supabase
