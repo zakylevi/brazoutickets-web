@@ -12,25 +12,23 @@ Deno.serve(async (req) => {
   try {
     const { requestId } = await req.json();
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("Stripe is not configured yet.");
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data: ticketReq, error: reqErr } = await supabase
       .from("ticket_requests")
-      .select("payment_intent_id, status")
+      .select("*")
       .eq("id", requestId)
       .single();
 
     if (reqErr || !ticketReq) throw new Error("Request not found");
     if (ticketReq.status !== "pending") throw new Error("Request has already been reviewed");
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
-
-    if (ticketReq.payment_intent_id) {
+    // Cancel Stripe hold if one exists
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (stripeKey && ticketReq.payment_intent_id) {
+      const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
       await stripe.paymentIntents.cancel(ticketReq.payment_intent_id);
     }
 
@@ -43,9 +41,9 @@ Deno.serve(async (req) => {
       JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (err: any) {
+  } catch (e) {
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: (e as any).message }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

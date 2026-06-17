@@ -288,11 +288,15 @@ const EventTicketsTab = ({ event, showTicketManagement = true, showCompTickets =
 
   // ── Ticket Requests ──
   const handleRequestAction = async (requestId: string, action: "approved" | "rejected") => {
-    const fnName = action === "approved" ? "capture-auth-hold" : "cancel-auth-hold";
-    const { error } = await supabase.functions.invoke(fnName, { body: { requestId } });
-    if (error) { console.error(error); toast.error(`Failed to ${action} request`); return; }
+    const fnName = action === "approved" ? "approve_ticket_request" : "reject_ticket_request";
+    const { data, error } = await supabase.rpc(fnName as any, { request_id: requestId });
+    if (error || (data as any)?.error) {
+      console.error(error || (data as any)?.error);
+      toast.error(`Failed to ${action} request`);
+      return;
+    }
     setTicketRequests((prev) => prev.map((r) => r.id === requestId ? { ...r, status: action } : r));
-    toast.success(action === "approved" ? "Approved — payment captured" : "Request rejected — hold released");
+    toast.success(action === "approved" ? "Approved!" : "Request rejected");
   };
 
   const pendingRequests = ticketRequests.filter((r) => r.status === "pending");
