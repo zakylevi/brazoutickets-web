@@ -64,7 +64,8 @@ const EventDetail = () => {
           const { data: reqs } = await supabase.from("ticket_requests" as any)
             .select("ticket_type_id, status")
             .eq("event_id", eventId)
-            .eq("user_id", sessionData.session.user.id);
+            .eq("user_id", sessionData.session.user.id)
+            .order("created_at", { ascending: true });
           if (reqs) {
             const map: Record<string, string> = {};
             (reqs as any[]).forEach((r: any) => { map[r.ticket_type_id] = r.status; });
@@ -543,20 +544,24 @@ const EventDetail = () => {
                             }
                             if (reqStatus === "approved") {
                               return (
-                                <a
-                                  href="/tickets"
-                                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-green-500/10 text-green-600 font-black tracking-tight text-sm"
-                                >
-                                  <ShieldCheck className="w-4 h-4" />
-                                  Approved — View Ticket
-                                </a>
-                              );
-                            }
-                            if (reqStatus === "rejected") {
-                              return (
-                                <span className="px-8 py-3 rounded-full bg-destructive/10 text-destructive font-black tracking-tight text-sm cursor-not-allowed">
-                                  Request Denied
-                                </span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <a
+                                    href="/tickets"
+                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-green-500/10 text-green-600 font-black tracking-tight text-sm"
+                                  >
+                                    <ShieldCheck className="w-4 h-4" />
+                                    View Ticket
+                                  </a>
+                                  <button
+                                    onClick={() => {
+                                      setRequestTicket(tier);
+                                      setRequestModalOpen(true);
+                                    }}
+                                    className="px-6 py-3 rounded-full bg-primary text-primary-foreground font-black tracking-tight text-sm hover:scale-105 transition-all flex items-center gap-2"
+                                  >
+                                    + Request More
+                                  </button>
+                                </div>
                               );
                             }
                             return (
