@@ -543,23 +543,13 @@ const EventDetail = () => {
                             }
                             if (reqStatus === "approved") {
                               return (
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => updateQuantity(i, -1)}
-                                    disabled={qty === 0}
-                                    className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center text-on-background hover:bg-brand-pink hover:text-primary-foreground transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                                  >
-                                    <Minus className="w-4 h-4" />
-                                  </button>
-                                  <span className="w-8 text-center font-black text-on-background tabular-nums">{qty}</span>
-                                  <button
-                                    onClick={() => updateQuantity(i, 1)}
-                                     disabled={qty >= tier.max_per_order}
-                                    className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center text-on-background hover:bg-brand-pink hover:text-primary-foreground transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                  </button>
-                                </div>
+                                <a
+                                  href="/tickets"
+                                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-green-500/10 text-green-600 font-black tracking-tight text-sm"
+                                >
+                                  <ShieldCheck className="w-4 h-4" />
+                                  Approved — View Ticket
+                                </a>
                               );
                             }
                             if (reqStatus === "rejected") {
